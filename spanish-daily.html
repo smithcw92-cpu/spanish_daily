@@ -11629,9 +11629,13 @@ function renderVocab() {
     inp.setAttribute('data-vi', i);
     if (item.correct) inp.disabled = true;
 
+    // Always pull the authoritative Spanish answer from VOCAB_POOL so stale localStorage can't corrupt the display
+    const poolEntry = VOCAB_POOL.find(w => w.en === item.en);
+    const correctEs = poolEntry ? poolEntry.es : item.es;
+
     const seeBtn = document.createElement('button');
     seeBtn.className = 'see-btn' + (item.revealed || item.correct ? ' revealed' : '');
-    seeBtn.textContent = (item.revealed || item.correct) ? item.es : 'See Answer';
+    seeBtn.textContent = (item.revealed || item.correct) ? correctEs : 'See Answer';
 
     inp.addEventListener('input', () => { item.userInput = inp.value; saveDay(); });
 
@@ -11639,14 +11643,14 @@ function renderVocab() {
       if (e.key !== 'Enter') return;
       e.preventDefault();
       if (item.correct) { focusNext(inp); return; }
-      if (isMatch(inp.value, item.es)) {
+      if (isMatch(inp.value, correctEs)) {
         item.correct = true;
         item.missed  = false;
         item.userInput = inp.value;
         inp.classList.remove('wrong'); inp.classList.add('correct');
         inp.disabled = true;
         card.classList.remove('revealed'); card.classList.add('correct');
-        seeBtn.textContent = item.es; seeBtn.classList.add('revealed');
+        seeBtn.textContent = correctEs; seeBtn.classList.add('revealed');
         updateProgress(); saveDay();
         focusNext(inp);
       } else {
@@ -11660,7 +11664,7 @@ function renderVocab() {
       if (item.correct) return;
       item.revealed = true;
       item.missed   = true;
-      seeBtn.textContent = item.es;
+      seeBtn.textContent = correctEs;
       seeBtn.classList.add('revealed');
       card.classList.add('revealed');
       saveDay();
