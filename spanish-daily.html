@@ -16016,6 +16016,18 @@ renderVocab();
 renderVerbs();
 renderPhrase();
 updateProgress();
+
+document.getElementById('vocab-reset-missed-btn').addEventListener('click', () => {
+  if (!confirm('Reset all missed words so you can try again?')) return;
+  day.vocab.forEach(w => { if (!w.correct) { w.userInput = ''; w.revealed = false; w.missed = false; } });
+  saveDay(); renderVocab(); updateProgress();
+});
+
+document.getElementById('vocab-reset-btn').addEventListener('click', () => {
+  if (!confirm('Reset everything and get a new set of words?')) return;
+  localStorage.removeItem(CACHE_KEY);
+  day = buildDay(); saveDay(); renderVocab(); renderVerbs(); renderPhrase(); updateProgress();
+});
 </script>
 </body>
 </html>
