@@ -10596,17 +10596,26 @@ function normalize(s) {
   return s.trim().toLowerCase()
     .replace(/[áà]/g,'a').replace(/[éè]/g,'e')
     .replace(/[íì]/g,'i').replace(/[óò]/g,'o')
-    .replace(/[úùü]/g,'u').replace(/ñ/g,'n');
+    .replace(/[úùü]/g,'u').replace(/ñ/g,'n').replace(/¿/g,'?').replace(/¡/g,'!');
 }
 
 function isMatch(typed, answer) {
   const t = typed.trim().toLowerCase();
   const a = answer.trim().toLowerCase();
   if (t === a) return true;
-  // Try each slash-separated alternative
-  for (const alt of a.split('/')) {
-    const c = alt.trim();
-    if (c === t || normalize(c) === normalize(t)) return true;
+  // Expand inline "word/word" patterns (e.g. "el/la camarada" → ["el camarada", "la camarada"])
+  function expand(s) {
+    const m = s.match(/(\S+)\/(\S+)/);
+    if (!m) return [s];
+    const pre = s.slice(0, m.index);
+    const post = s.slice(m.index + m[0].length);
+    return [
+      ...expand((pre + m[1] + post).trim()),
+      ...expand((pre + m[2] + post).trim()),
+    ];
+  }
+  for (const alt of expand(a)) {
+    if (alt === t || normalize(alt) === normalize(t)) return true;
   }
   return false;
 }
