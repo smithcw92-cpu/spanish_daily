@@ -11629,8 +11629,10 @@ function renderVocab() {
     inp.setAttribute('data-vi', i);
     if (item.correct) inp.disabled = true;
 
-    // Always pull the authoritative Spanish answer from VOCAB_POOL so stale localStorage can't corrupt the display
-    const poolEntry = VOCAB_POOL.find(w => w.en === item.en);
+    // Match on both en+es first (handles duplicates like how|cómo vs how|cuán correctly),
+    // then fall back to first en match (fixes corrupted localStorage where item.es was English).
+    const poolEntry = VOCAB_POOL.find(w => w.en === item.en && w.es === item.es)
+                   || VOCAB_POOL.find(w => w.en === item.en);
     const correctEs = poolEntry ? poolEntry.es : item.es;
 
     const seeBtn = document.createElement('button');
