@@ -10600,8 +10600,10 @@ function normalize(s) {
 }
 
 function isMatch(typed, answer) {
-  const t = typed.trim().toLowerCase();
-  const a = answer.trim().toLowerCase();
+  // Normalise inverted Spanish punctuation early so ? is accepted in place of ¿ (and vice-versa)
+  const prep = s => s.trim().toLowerCase().replace(/¿/g, '?').replace(/¡/g, '!');
+  const t = prep(typed);
+  const a = prep(answer);
   if (t === a) return true;
   // Expand inline "word/word" patterns (e.g. "el/la camarada" → ["el camarada", "la camarada"])
   function expand(s) {
