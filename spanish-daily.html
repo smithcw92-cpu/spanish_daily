@@ -288,6 +288,52 @@ section { margin-bottom: 32px; }
   .conj-grid  { grid-template-columns: 1fr; }
   .conj-row   { grid-template-columns: 70px 1fr auto; }
 }
+
+/* ── Weekly review ── */
+#week-review-btn {
+  background: #1a2240;
+  border: 1px solid #2a3a60;
+  border-radius: 6px;
+  color: #7a8cc0;
+  font-size: 0.78rem;
+  padding: 5px 14px;
+  cursor: pointer;
+  margin-top: 10px;
+  transition: all 0.15s;
+}
+#week-review-btn:hover  { background: #252e58; color: #c5cde8; }
+#week-review-btn.active { background: #252e58; color: #a0b0e0; border-color: #4060a0; }
+
+#weekly-section { display: none; }
+#weekly-progress-bar {
+  text-align: center;
+  font-size: 0.82rem;
+  color: #7a84a0;
+  margin-bottom: 20px;
+}
+#weekly-progress-bar span { color: #c5cde8; font-weight: 600; }
+#back-to-daily-btn {
+  background: #181e30;
+  border: 1px solid #252e48;
+  border-radius: 6px;
+  color: #606880;
+  font-size: 0.8rem;
+  padding: 7px 18px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+#back-to-daily-btn:hover { background: #252e48; color: #c5cde8; }
+#weekly-reset-btn {
+  background: #181e30;
+  border: 1px solid #252e48;
+  border-radius: 6px;
+  color: #606880;
+  font-size: 0.8rem;
+  padding: 7px 18px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+#weekly-reset-btn:hover { background: #252e48; color: #c5cde8; }
 </style>
 </head>
 <body>
@@ -298,6 +344,7 @@ section { margin-bottom: 32px; }
   <div id="progress-bar">
     Vocab <span id="vocab-prog">0 / 20</span>&nbsp;&nbsp;·&nbsp;&nbsp;Conjugations <span id="conj-prog">0 / 12</span>&nbsp;&nbsp;·&nbsp;&nbsp;Phrases <span id="phrase-prog">0 / 5</span>
   </div>
+  <button id="week-review-btn">📅 Weekly Review</button>
 </div>
 
 <section>
@@ -320,6 +367,22 @@ section { margin-bottom: 32px; }
   <div class="section-title">Translation Practice <em>— write each sentence in Spanish, reveal to compare</em></div>
   <div id="phrase-section"></div>
 </section>
+
+<div id="weekly-section">
+  <div style="text-align:center; margin-bottom:20px;">
+    <button id="back-to-daily-btn">← Back to Today</button>
+  </div>
+  <div id="weekly-progress-bar">
+    Words: <span id="weekly-prog">0 / 0</span>
+  </div>
+  <section>
+    <div class="section-title">Weekly Vocab Review <em>— all words from the past 6 days</em></div>
+    <div id="weekly-vocab-list"></div>
+  </section>
+  <div style="text-align:center; margin-top:16px;">
+    <button id="weekly-reset-btn">↺ Reset All</button>
+  </div>
+</div>
 
 <div id="footer">
   <button id="refresh-btn">🔄 New words for today</button>
@@ -11514,7 +11577,8 @@ function isMatch(typed, answer) {
 }
 
 // ── Daily state ───────────────────────────────────────────────────────────────
-const CACHE_KEY     = 'spanish_daily_v2';
+const CACHE_KEY        = 'spanish_daily_v2';
+const WEEKLY_QUIZ_KEY  = 'spanish_weekly_quiz';
 const VOCAB_COUNT   = 20;
 const VERB_COUNT    = 2;
 
@@ -11542,6 +11606,14 @@ function buildDay() {
   return { date: todayStr(), vocab: vocabItems, verbs: verbItems, phrases: phraseItems };
 }
 
+function archiveVocab(dateStr, vocabItems) {
+  try {
+    const key = 'spanish_weekly_' + dateStr;
+    const items = vocabItems.map(w => ({ en: w.en, es: w.es }));
+    localStorage.setItem(key, JSON.stringify(items));
+  } catch(_) {}
+}
+
 function loadDay() {
   try {
     const raw = localStorage.getItem(CACHE_KEY);
@@ -11563,6 +11635,9 @@ function loadDay() {
         // ensure each phrase item has the correct field
         saved.phrases.forEach(p => { if (p.correct === undefined) p.correct = null; });
         return saved;
+      } else {
+        // Archive old day's vocab before discarding
+        if (saved.vocab && saved.vocab.length) archiveVocab(saved.date, saved.vocab);
       }
     }
   } catch(_) {}
@@ -11571,6 +11646,165 @@ function loadDay() {
 
 function saveDay() {
   try { localStorage.setItem(CACHE_KEY, JSON.stringify(day)); } catch(_) {}
+}
+
+// ── Weekly review ─────────────────────────────────────────────────────────────
+let weeklyItems = [];
+
+function getWeekStart() {
+  const d = new Date();
+  const diff = (d.getDay() === 0 ? -6 : 1 - d.getDay());
+  d.setDate(d.getDate() + diff);
+  return d.toISOString().slice(0, 10);
+}
+
+function loadWeekVocab() {
+  // Try to reuse saved weekly quiz if it's from the same week
+  try {
+    const saved = JSON.parse(localStorage.getItem(WEEKLY_QUIZ_KEY) || 'null');
+    if (saved && saved.weekStart === getWeekStart() && saved.items && saved.items.length) {
+      return saved.items;
+    }
+  } catch(_) {}
+
+  // Build fresh: collect today's words + past 6 archived days
+  const seen = new Set();
+  const pool = [];
+
+  const addWord = w => {
+    const key = w.en + '|' + w.es;
+    if (!seen.has(key)) { seen.add(key); pool.push({ en: w.en, es: w.es }); }
+  };
+
+  day.vocab.forEach(addWord);
+
+  const today = todayStr();
+  for (let d = 1; d <= 6; d++) {
+    const dt = new Date(today);
+    dt.setDate(dt.getDate() - d);
+    const dateStr = dt.toISOString().slice(0, 10);
+    try {
+      const raw = localStorage.getItem('spanish_weekly_' + dateStr);
+      if (raw) JSON.parse(raw).forEach(addWord);
+    } catch(_) {}
+  }
+
+  const items = shuffle(pool).map(w => ({
+    en: w.en, es: w.es, userInput: '', revealed: false, correct: false, missed: false
+  }));
+
+  try {
+    localStorage.setItem(WEEKLY_QUIZ_KEY, JSON.stringify({ weekStart: getWeekStart(), items }));
+  } catch(_) {}
+
+  return items;
+}
+
+function saveWeekly() {
+  try {
+    localStorage.setItem(WEEKLY_QUIZ_KEY, JSON.stringify({ weekStart: getWeekStart(), items: weeklyItems }));
+  } catch(_) {}
+}
+
+function updateWeeklyProgress() {
+  const done = weeklyItems.filter(w => w.correct).length;
+  document.getElementById('weekly-prog').textContent = `${done} / ${weeklyItems.length}`;
+}
+
+function renderWeeklyVocab() {
+  const container = document.getElementById('weekly-vocab-list');
+  container.innerHTML = '';
+
+  weeklyItems.forEach((item, i) => {
+    const card = document.createElement('div');
+    card.className = 'vocab-card' + (item.correct ? ' correct' : item.revealed ? ' revealed' : '');
+
+    const eng = document.createElement('div');
+    eng.className = 'eng-word';
+    eng.textContent = item.en;
+
+    const inp = document.createElement('input');
+    inp.className = 'ans-input' + (item.correct ? ' correct' : '');
+    inp.type = 'text';
+    inp.placeholder = 'Spanish…';
+    inp.value = item.userInput || '';
+    inp.autocomplete = 'off';
+    inp.spellcheck = false;
+    if (item.correct) inp.disabled = true;
+
+    const poolEntry = VOCAB_POOL.find(w => w.en === item.en && w.es === item.es)
+                   || VOCAB_POOL.find(w => w.en === item.en);
+    const correctEs = poolEntry ? poolEntry.es : item.es;
+
+    const seeBtn = document.createElement('button');
+    seeBtn.className = 'see-btn' + (item.revealed || item.correct ? ' revealed' : '');
+    seeBtn.textContent = (item.revealed || item.correct) ? correctEs : 'See Answer';
+
+    inp.addEventListener('input', () => { item.userInput = inp.value; saveWeekly(); });
+
+    inp.addEventListener('keydown', e => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      if (item.correct) { focusNextWeekly(inp); return; }
+      if (isMatch(inp.value, correctEs)) {
+        item.correct = true;
+        item.missed  = false;
+        item.userInput = inp.value;
+        inp.classList.remove('wrong'); inp.classList.add('correct');
+        inp.disabled = true;
+        card.classList.remove('revealed'); card.classList.add('correct');
+        seeBtn.textContent = correctEs; seeBtn.classList.add('revealed');
+        updateWeeklyProgress(); saveWeekly();
+        focusNextWeekly(inp);
+      } else {
+        item.missed = true;
+        inp.classList.add('wrong');
+        setTimeout(() => inp.classList.remove('wrong'), 700);
+      }
+    });
+
+    seeBtn.addEventListener('click', () => {
+      if (item.correct) return;
+      item.revealed = true;
+      item.missed   = true;
+      seeBtn.textContent = correctEs;
+      seeBtn.classList.add('revealed');
+      card.classList.add('revealed');
+      saveWeekly();
+    });
+
+    card.append(eng, inp, seeBtn);
+    container.appendChild(card);
+  });
+}
+
+function focusNextWeekly(currentEl) {
+  const all = [...document.querySelectorAll('#weekly-vocab-list .ans-input')];
+  const idx = all.indexOf(currentEl);
+  for (let i = idx + 1; i < all.length; i++) {
+    if (!all[i].disabled) { all[i].focus(); all[i].scrollIntoView({ behavior: 'smooth', block: 'nearest' }); return; }
+  }
+}
+
+const dailySections = () => [...document.querySelectorAll('body > section'), document.getElementById('footer')];
+
+function enterWeeklyMode() {
+  weeklyItems = loadWeekVocab();
+  renderWeeklyVocab();
+  updateWeeklyProgress();
+  dailySections().forEach(el => el && (el.style.display = 'none'));
+  document.getElementById('progress-bar').style.display = 'none';
+  document.getElementById('weekly-section').style.display = '';
+  document.getElementById('week-review-btn').classList.add('active');
+  document.querySelector('h1').textContent = '🇪🇸 Weekly Review';
+}
+
+function exitWeeklyMode() {
+  document.getElementById('weekly-section').style.display = 'none';
+  dailySections().forEach(el => el && (el.style.display = ''));
+  document.getElementById('progress-bar').style.display = '';
+  document.getElementById('week-review-btn').classList.remove('active');
+  document.querySelector('h1').textContent = '🇪🇸 Daily Spanish';
 }
 
 // ── Progress ──────────────────────────────────────────────────────────────────
@@ -16045,6 +16279,20 @@ document.getElementById('vocab-new-set-btn').addEventListener('click', () => {
   if (!confirm('Get a brand new set of 20 words?')) return;
   localStorage.removeItem(CACHE_KEY);
   day = buildDay(); saveDay(); renderVocab(); renderVerbs(); renderPhrase(); updateProgress();
+});
+
+// Weekly review toggle
+document.getElementById('week-review-btn').addEventListener('click', () => {
+  const isActive = document.getElementById('week-review-btn').classList.contains('active');
+  isActive ? exitWeeklyMode() : enterWeeklyMode();
+});
+
+document.getElementById('back-to-daily-btn').addEventListener('click', exitWeeklyMode);
+
+document.getElementById('weekly-reset-btn').addEventListener('click', () => {
+  if (!confirm('Reset all weekly answers?')) return;
+  weeklyItems.forEach(w => { w.userInput = ''; w.revealed = false; w.correct = false; w.missed = false; });
+  saveWeekly(); renderWeeklyVocab(); updateWeeklyProgress();
 });
 </script>
 </body>
