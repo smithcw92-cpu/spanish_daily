@@ -290,7 +290,7 @@ section { margin-bottom: 32px; }
 }
 
 /* ── Weekly review ── */
-#week-review-btn {
+#week-review-btn, #month-review-btn {
   background: #1a2240;
   border: 1px solid #2a3a60;
   border-radius: 6px;
@@ -301,8 +301,8 @@ section { margin-bottom: 32px; }
   margin-top: 10px;
   transition: all 0.15s;
 }
-#week-review-btn:hover  { background: #252e58; color: #c5cde8; }
-#week-review-btn.active { background: #252e58; color: #a0b0e0; border-color: #4060a0; }
+#week-review-btn:hover,  #month-review-btn:hover  { background: #252e58; color: #c5cde8; }
+#week-review-btn.active, #month-review-btn.active { background: #252e58; color: #a0b0e0; border-color: #4060a0; }
 
 #weekly-section { display: none; }
 #weekly-progress-bar {
@@ -334,6 +334,41 @@ section { margin-bottom: 32px; }
   transition: all 0.15s;
 }
 #weekly-reset-btn:hover { background: #252e48; color: #c5cde8; }
+
+/* shared ghost button used in monthly panels */
+.ghost-btn {
+  background: #181e30;
+  border: 1px solid #252e48;
+  border-radius: 6px;
+  color: #606880;
+  font-size: 0.8rem;
+  padding: 7px 18px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.ghost-btn:hover { background: #252e48; color: #c5cde8; }
+
+/* Month picker grid */
+#monthly-month-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+  margin-bottom: 24px;
+}
+.month-card {
+  background: #111827;
+  border: 1px solid #1e2740;
+  border-radius: 8px;
+  padding: 18px 14px;
+  cursor: pointer;
+  text-align: center;
+  transition: border-color 0.15s, background 0.15s;
+}
+.month-card:hover { border-color: #4060a0; background: #141d35; }
+.month-card.current-month { border-color: #2a3a60; }
+.month-card-name  { font-size: 0.95rem; font-weight: 600; color: #c5cde8; }
+.month-card-year  { font-size: 0.78rem; color: #5a6380; margin-top: 2px; }
+.month-card-count { font-size: 0.75rem; color: #4a5470; margin-top: 6px; }
 </style>
 </head>
 <body>
@@ -344,7 +379,10 @@ section { margin-bottom: 32px; }
   <div id="progress-bar">
     Vocab <span id="vocab-prog">0 / 20</span>&nbsp;&nbsp;·&nbsp;&nbsp;Conjugations <span id="conj-prog">0 / 12</span>&nbsp;&nbsp;·&nbsp;&nbsp;Phrases <span id="phrase-prog">0 / 5</span>
   </div>
-  <button id="week-review-btn">📅 Weekly Review</button>
+  <div style="display:flex; justify-content:center; gap:8px; flex-wrap:wrap;">
+    <button id="week-review-btn">📅 Weekly Review</button>
+    <button id="month-review-btn">📆 Monthly Review</button>
+  </div>
 </div>
 
 <section>
@@ -367,6 +405,40 @@ section { margin-bottom: 32px; }
   <div class="section-title">Translation Practice <em>— write each sentence in Spanish, reveal to compare</em></div>
   <div id="phrase-section"></div>
 </section>
+
+<div id="monthly-section" style="display:none">
+
+  <!-- ── Picker panel ── -->
+  <div id="monthly-picker">
+    <div style="text-align:center; margin-bottom:20px;">
+      <button id="back-to-daily-from-monthly-btn" class="ghost-btn">← Back to Today</button>
+    </div>
+    <div class="section-title">Monthly Review <em>— choose a month</em></div>
+    <div id="monthly-month-grid"></div>
+    <div id="monthly-empty" style="display:none; text-align:center; color:#3a4260; font-size:0.85rem; padding:32px 0;">
+      No past months yet — keep doing daily sessions and they'll appear here.
+    </div>
+  </div>
+
+  <!-- ── Quiz panel ── -->
+  <div id="monthly-quiz" style="display:none">
+    <div style="text-align:center; margin-bottom:20px; display:flex; justify-content:center; gap:10px; flex-wrap:wrap;">
+      <button id="back-to-monthly-picker-btn" class="ghost-btn">← All Months</button>
+      <button id="monthly-reset-btn" class="ghost-btn">↺ Reset All</button>
+    </div>
+    <div style="text-align:center; font-size:0.9rem; font-weight:600; color:#c5cde8; margin-bottom:4px;">
+      <span id="monthly-quiz-title"></span>
+    </div>
+    <div style="text-align:center; font-size:0.82rem; color:#7a84a0; margin-bottom:20px;">
+      Words: <span id="monthly-prog">0 / 0</span>
+    </div>
+    <section>
+      <div class="section-title">Vocabulary <em>— type Spanish, press Enter to check</em></div>
+      <div id="monthly-vocab-list"></div>
+    </section>
+  </div>
+
+</div>
 
 <div id="weekly-section">
   <div style="text-align:center; margin-bottom:20px;">
@@ -11577,8 +11649,9 @@ function isMatch(typed, answer) {
 }
 
 // ── Daily state ───────────────────────────────────────────────────────────────
-const CACHE_KEY        = 'spanish_daily_v2';
-const WEEKLY_QUIZ_KEY  = 'spanish_weekly_quiz';
+const CACHE_KEY         = 'spanish_daily_v2';
+const WEEKLY_QUIZ_KEY   = 'spanish_weekly_quiz';
+const MONTHLY_QUIZ_KEY  = 'spanish_monthly_quiz';
 const VOCAB_COUNT   = 20;
 const VERB_COUNT    = 2;
 
@@ -11786,26 +11859,229 @@ function focusNextWeekly(currentEl) {
   }
 }
 
+// ── Monthly review ────────────────────────────────────────────────────────────
+let monthlyItems        = [];
+let currentMonthSaveKey = null;
+
+const MONTH_NAMES = ['January','February','March','April','May','June',
+                     'July','August','September','October','November','December'];
+
+function formatMonthId(monthId) {
+  const [y, m] = monthId.split('-');
+  return { name: MONTH_NAMES[parseInt(m) - 1], year: y };
+}
+
+function getArchivedMonths() {
+  const months = new Set();
+  months.add(todayStr().slice(0, 7)); // always include current month
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key && key.startsWith('spanish_weekly_')) {
+      const dateStr = key.replace('spanish_weekly_', '');
+      if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) months.add(dateStr.slice(0, 7));
+    }
+  }
+  return [...months].sort().reverse(); // most recent first
+}
+
+function countMonthWords(monthId) {
+  const [y, m] = monthId.split('-').map(Number);
+  const isNow   = monthId === todayStr().slice(0, 7);
+  const lastDay = isNow ? new Date(todayStr()).getDate() : new Date(y, m, 0).getDate();
+  const seen    = new Set();
+  if (isNow) day.vocab.forEach(w => seen.add(w.en + '|' + w.es));
+  for (let d = 1; d <= (isNow ? lastDay - 1 : lastDay); d++) {
+    const dateStr = new Date(y, m - 1, d).toISOString().slice(0, 10);
+    try {
+      const raw = localStorage.getItem('spanish_weekly_' + dateStr);
+      if (raw) JSON.parse(raw).forEach(w => seen.add(w.en + '|' + w.es));
+    } catch(_) {}
+  }
+  return seen.size;
+}
+
+function loadMonthVocabFor(monthId) {
+  const saveKey = 'spanish_monthly_quiz_' + monthId;
+  try {
+    const saved = JSON.parse(localStorage.getItem(saveKey) || 'null');
+    if (saved && saved.items && saved.items.length) return { items: saved.items, saveKey };
+  } catch(_) {}
+
+  const [y, m] = monthId.split('-').map(Number);
+  const isNow   = monthId === todayStr().slice(0, 7);
+  const lastDay = isNow ? new Date(todayStr()).getDate() : new Date(y, m, 0).getDate();
+  const seen = new Set();
+  const pool = [];
+  const addWord = w => {
+    const key = w.en + '|' + w.es;
+    if (!seen.has(key)) { seen.add(key); pool.push({ en: w.en, es: w.es }); }
+  };
+  if (isNow) day.vocab.forEach(addWord);
+  for (let d = 1; d <= (isNow ? lastDay - 1 : lastDay); d++) {
+    const dateStr = new Date(y, m - 1, d).toISOString().slice(0, 10);
+    try {
+      const raw = localStorage.getItem('spanish_weekly_' + dateStr);
+      if (raw) JSON.parse(raw).forEach(addWord);
+    } catch(_) {}
+  }
+  const items = shuffle(pool).map(w => ({
+    en: w.en, es: w.es, userInput: '', revealed: false, correct: false, missed: false
+  }));
+  try { localStorage.setItem(saveKey, JSON.stringify({ items })); } catch(_) {}
+  return { items, saveKey };
+}
+
+function saveMonthly() {
+  if (!currentMonthSaveKey) return;
+  try { localStorage.setItem(currentMonthSaveKey, JSON.stringify({ items: monthlyItems })); } catch(_) {}
+}
+
+function updateMonthlyProgress() {
+  const done = monthlyItems.filter(w => w.correct).length;
+  document.getElementById('monthly-prog').textContent = `${done} / ${monthlyItems.length}`;
+}
+
+function renderMonthlyVocab() {
+  const container = document.getElementById('monthly-vocab-list');
+  container.innerHTML = '';
+  monthlyItems.forEach(item => {
+    const card = document.createElement('div');
+    card.className = 'vocab-card' + (item.correct ? ' correct' : item.revealed ? ' revealed' : '');
+    const eng = document.createElement('div');
+    eng.className = 'eng-word';
+    eng.textContent = item.en;
+    const inp = document.createElement('input');
+    inp.className = 'ans-input' + (item.correct ? ' correct' : '');
+    inp.type = 'text'; inp.placeholder = 'Spanish…'; inp.value = item.userInput || '';
+    inp.autocomplete = 'off'; inp.spellcheck = false;
+    if (item.correct) inp.disabled = true;
+    const poolEntry = VOCAB_POOL.find(w => w.en === item.en && w.es === item.es)
+                   || VOCAB_POOL.find(w => w.en === item.en);
+    const correctEs = poolEntry ? poolEntry.es : item.es;
+    const seeBtn = document.createElement('button');
+    seeBtn.className = 'see-btn' + (item.revealed || item.correct ? ' revealed' : '');
+    seeBtn.textContent = (item.revealed || item.correct) ? correctEs : 'See Answer';
+    inp.addEventListener('input', () => { item.userInput = inp.value; saveMonthly(); });
+    inp.addEventListener('keydown', e => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      if (item.correct) { focusNextMonthly(inp); return; }
+      if (isMatch(inp.value, correctEs)) {
+        item.correct = true; item.missed = false; item.userInput = inp.value;
+        inp.classList.remove('wrong'); inp.classList.add('correct'); inp.disabled = true;
+        card.classList.remove('revealed'); card.classList.add('correct');
+        seeBtn.textContent = correctEs; seeBtn.classList.add('revealed');
+        updateMonthlyProgress(); saveMonthly(); focusNextMonthly(inp);
+      } else {
+        item.missed = true;
+        inp.classList.add('wrong');
+        setTimeout(() => inp.classList.remove('wrong'), 700);
+      }
+    });
+    seeBtn.addEventListener('click', () => {
+      if (item.correct) return;
+      item.revealed = true; item.missed = true;
+      seeBtn.textContent = correctEs; seeBtn.classList.add('revealed');
+      card.classList.add('revealed'); saveMonthly();
+    });
+    card.append(eng, inp, seeBtn);
+    container.appendChild(card);
+  });
+}
+
+function focusNextMonthly(currentEl) {
+  const all = [...document.querySelectorAll('#monthly-vocab-list .ans-input')];
+  const idx = all.indexOf(currentEl);
+  for (let i = idx + 1; i < all.length; i++) {
+    if (!all[i].disabled) { all[i].focus(); all[i].scrollIntoView({ behavior: 'smooth', block: 'nearest' }); return; }
+  }
+}
+
+function renderMonthPicker() {
+  const grid  = document.getElementById('monthly-month-grid');
+  const empty = document.getElementById('monthly-empty');
+  grid.innerHTML = '';
+  const months   = getArchivedMonths();
+  const todayMon = todayStr().slice(0, 7);
+  if (months.length === 0) { empty.style.display = ''; return; }
+  empty.style.display = 'none';
+  months.forEach(monthId => {
+    const count = countMonthWords(monthId);
+    const { name, year } = formatMonthId(monthId);
+    const card = document.createElement('div');
+    card.className = 'month-card' + (monthId === todayMon ? ' current-month' : '');
+    card.innerHTML =
+      `<div class="month-card-name">${name}</div>` +
+      `<div class="month-card-year">${year}</div>` +
+      `<div class="month-card-count">${count} word${count !== 1 ? 's' : ''}</div>`;
+    card.addEventListener('click', () => enterMonthQuiz(monthId));
+    grid.appendChild(card);
+  });
+}
+
+function enterMonthQuiz(monthId) {
+  const { items, saveKey } = loadMonthVocabFor(monthId);
+  monthlyItems        = items;
+  currentMonthSaveKey = saveKey;
+  renderMonthlyVocab();
+  updateMonthlyProgress();
+  const { name, year } = formatMonthId(monthId);
+  document.getElementById('monthly-quiz-title').textContent = `${name} ${year}`;
+  document.getElementById('monthly-picker').style.display = 'none';
+  document.getElementById('monthly-quiz').style.display   = '';
+}
+
+function exitMonthQuiz() {
+  document.getElementById('monthly-quiz').style.display   = 'none';
+  document.getElementById('monthly-picker').style.display = '';
+  renderMonthPicker();
+}
+
 const dailySections = () => [...document.querySelectorAll('body > section'), document.getElementById('footer')];
 
-function enterWeeklyMode() {
-  weeklyItems = loadWeekVocab();
-  renderWeeklyVocab();
-  updateWeeklyProgress();
-  dailySections().forEach(el => el && (el.style.display = 'none'));
-  document.getElementById('progress-bar').style.display = 'none';
-  document.getElementById('weekly-section').style.display = '';
-  document.getElementById('week-review-btn').classList.add('active');
-  document.querySelector('h1').textContent = '🇪🇸 Weekly Review';
+function setMode(mode) {
+  const wSection = document.getElementById('weekly-section');
+  const mSection = document.getElementById('monthly-section');
+  const wBtn     = document.getElementById('week-review-btn');
+  const mBtn     = document.getElementById('month-review-btn');
+  const h1       = document.querySelector('h1');
+  const progBar  = document.getElementById('progress-bar');
+  const daily    = dailySections();
+
+  // Reset all
+  wSection.style.display = 'none';
+  mSection.style.display = 'none';
+  wBtn.classList.remove('active');
+  mBtn.classList.remove('active');
+
+  if (mode === 'weekly') {
+    weeklyItems = loadWeekVocab();
+    renderWeeklyVocab();
+    updateWeeklyProgress();
+    daily.forEach(el => el && (el.style.display = 'none'));
+    progBar.style.display = 'none';
+    wSection.style.display = '';
+    wBtn.classList.add('active');
+    h1.textContent = '🇪🇸 Weekly Review';
+  } else if (mode === 'monthly') {
+    // Show picker first; user selects a month to drill into
+    document.getElementById('monthly-quiz').style.display   = 'none';
+    document.getElementById('monthly-picker').style.display = '';
+    renderMonthPicker();
+    daily.forEach(el => el && (el.style.display = 'none'));
+    progBar.style.display = 'none';
+    mSection.style.display = '';
+    mBtn.classList.add('active');
+    h1.textContent = '🇪🇸 Monthly Review';
+  } else {
+    daily.forEach(el => el && (el.style.display = ''));
+    progBar.style.display = '';
+    h1.textContent = '🇪🇸 Daily Spanish';
+  }
 }
 
-function exitWeeklyMode() {
-  document.getElementById('weekly-section').style.display = 'none';
-  dailySections().forEach(el => el && (el.style.display = ''));
-  document.getElementById('progress-bar').style.display = '';
-  document.getElementById('week-review-btn').classList.remove('active');
-  document.querySelector('h1').textContent = '🇪🇸 Daily Spanish';
-}
+function enterWeeklyMode() { setMode('weekly'); }
+function exitWeeklyMode()  { setMode('daily'); }
 
 // ── Progress ──────────────────────────────────────────────────────────────────
 function updateProgress() {
@@ -16283,16 +16559,28 @@ document.getElementById('vocab-new-set-btn').addEventListener('click', () => {
 
 // Weekly review toggle
 document.getElementById('week-review-btn').addEventListener('click', () => {
-  const isActive = document.getElementById('week-review-btn').classList.contains('active');
-  isActive ? exitWeeklyMode() : enterWeeklyMode();
+  setMode(document.getElementById('week-review-btn').classList.contains('active') ? 'daily' : 'weekly');
 });
-
-document.getElementById('back-to-daily-btn').addEventListener('click', exitWeeklyMode);
-
+document.getElementById('back-to-daily-btn').addEventListener('click', () => setMode('daily'));
 document.getElementById('weekly-reset-btn').addEventListener('click', () => {
   if (!confirm('Reset all weekly answers?')) return;
   weeklyItems.forEach(w => { w.userInput = ''; w.revealed = false; w.correct = false; w.missed = false; });
   saveWeekly(); renderWeeklyVocab(); updateWeeklyProgress();
+});
+
+// Monthly review toggle
+document.getElementById('month-review-btn').addEventListener('click', () => {
+  setMode(document.getElementById('month-review-btn').classList.contains('active') ? 'daily' : 'monthly');
+});
+document.getElementById('back-to-daily-from-monthly-btn').addEventListener('click', () => setMode('daily'));
+document.getElementById('back-to-monthly-picker-btn').addEventListener('click', exitMonthQuiz);
+document.getElementById('monthly-reset-btn').addEventListener('click', () => {
+  if (!confirm('Reset all answers for this month?')) return;
+  monthlyItems.forEach(w => { w.userInput = ''; w.revealed = false; w.correct = false; w.missed = false; });
+  // Clear saved quiz so it rebuilds fresh next time
+  if (currentMonthSaveKey) localStorage.removeItem(currentMonthSaveKey);
+  currentMonthSaveKey = null;
+  renderMonthlyVocab(); updateMonthlyProgress();
 });
 </script>
 </body>
