@@ -679,6 +679,73 @@ section { margin-bottom: 32px; }
   margin-top: 16px; font-size: 0.72rem; color: #2A3260; letter-spacing: 0.04em;
 }
 
+/* ── Streak calendar modal ── */
+#header-streak { cursor: pointer; transition: color 0.15s; }
+#header-streak:hover #streak-count,
+#header-streak:hover #streak-label { color: #FFB347; }
+#streak-modal {
+  position: fixed; inset: 0; z-index: 9000;
+  display: flex; align-items: center; justify-content: center;
+  background: #00000088; backdrop-filter: blur(4px);
+  animation: fade-in-up 0.15s ease;
+}
+#streak-modal-inner {
+  background: linear-gradient(160deg, #131A28 0%, #0E1520 100%);
+  border: 1px solid #1C2333; border-radius: 20px;
+  padding: 28px 30px 24px; text-align: center;
+  box-shadow: 0 24px 64px #00000080, 0 0 0 1px #FFFFFF08;
+  min-width: 300px; max-width: 360px;
+  animation: slide-up 0.2s cubic-bezier(0.12,0.8,0.3,1.0);
+}
+#streak-modal-title {
+  font-size: 1.15rem; font-weight: 700; color: #C8D0E8; margin-bottom: 18px;
+}
+#streak-modal-title #streak-modal-count { color: #FFB347; }
+#streak-cal-nav {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 12px;
+}
+#streak-cal-label {
+  font-size: 0.88rem; font-weight: 700; color: #C8D0E8; letter-spacing: 0.02em;
+}
+#streak-cal-prev, #streak-cal-next {
+  background: #181e30; border: 1px solid #252e48; border-radius: 8px;
+  color: #7A84A4; font-size: 1rem; width: 30px; height: 30px;
+  cursor: pointer; transition: all 0.15s; line-height: 1;
+}
+#streak-cal-prev:hover, #streak-cal-next:hover { color: #C8D0E8; border-color: #3a4260; }
+#streak-cal-weekdays {
+  display: grid; grid-template-columns: repeat(7, 1fr);
+  margin-bottom: 4px;
+}
+#streak-cal-weekdays span {
+  font-size: 0.66rem; font-weight: 700; color: #3A4260; text-transform: uppercase;
+}
+#streak-cal-grid {
+  display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px;
+}
+.streak-cal-day {
+  aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
+  border-radius: 8px; font-size: 0.78rem; color: #4A5370;
+  position: relative;
+}
+.streak-cal-day.empty { visibility: hidden; }
+.streak-cal-day.visited {
+  background: #271708; color: #FFB347; font-weight: 700;
+}
+.streak-cal-day.today {
+  box-shadow: 0 0 0 2px #06D6A0;
+  color: #C8D0E8;
+}
+.streak-cal-day.today.visited { color: #FFB347; }
+#streak-modal-close {
+  margin-top: 20px; width: 100%;
+  background: #181e30; color: #606880; border: 1px solid #252e48;
+  border-radius: 10px; font-size: 0.88rem; font-weight: 600;
+  padding: 10px; cursor: pointer; transition: all 0.18s;
+}
+#streak-modal-close:hover { color: #C8D0E8; border-color: #3a4260; }
+
 #nav-bottom-row {
   position: relative;
   display: flex;
@@ -1403,6 +1470,25 @@ section { margin-bottom: 32px; }
       </div>
     </div>
     <div id="learn-modal-hint">Press Enter to confirm</div>
+  </div>
+</div>
+
+<!-- Streak calendar modal -->
+<div id="streak-modal" style="display:none">
+  <div id="streak-modal-inner">
+    <div id="streak-modal-header">
+      <div id="streak-modal-title">🔥 <span id="streak-modal-count">—</span> Day Streak</div>
+    </div>
+    <div id="streak-cal-nav">
+      <button id="streak-cal-prev" aria-label="Previous month">‹</button>
+      <div id="streak-cal-label"></div>
+      <button id="streak-cal-next" aria-label="Next month">›</button>
+    </div>
+    <div id="streak-cal-weekdays">
+      <span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span>
+    </div>
+    <div id="streak-cal-grid"></div>
+    <button id="streak-modal-close">Close</button>
   </div>
 </div>
 
@@ -19717,9 +19803,86 @@ async function updateStreak() {
     }
   } catch(_) {}
   await userRef('streak').set({ count: streak, lastDate: today }).catch(() => {});
+  await userRef('visitLog/' + today).set(true).catch(() => {});
   document.getElementById('streak-count').textContent = `🔥 ${streak}`;
   document.getElementById('streak-label').textContent = streak === 1 ? '1st Day!' : 'Day Streak';
+  currentStreakCount = streak;
 }
+
+// ── Streak calendar ───────────────────────────────────────────────────────
+let currentStreakCount = 0;
+let visitLogCache = null;
+let calendarViewDate = new Date();
+
+function dateKey(y, m, d) {
+  return `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
+async function openStreakCalendar() {
+  document.getElementById('streak-modal-count').textContent = currentStreakCount;
+  if (!visitLogCache) {
+    try {
+      const snap = await userRef('visitLog').once('value');
+      visitLogCache = snap.exists() ? snap.val() : {};
+    } catch (_) {
+      visitLogCache = {};
+    }
+  }
+  const todayPacific = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
+  calendarViewDate = new Date(todayPacific.getFullYear(), todayPacific.getMonth(), 1);
+  renderStreakCalendar();
+  document.getElementById('streak-modal').style.display = 'flex';
+}
+
+function renderStreakCalendar() {
+  const year = calendarViewDate.getFullYear();
+  const month = calendarViewDate.getMonth();
+  const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  document.getElementById('streak-cal-label').textContent = `${monthNames[month]} ${year}`;
+
+  const todayPacific = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
+  const todayKey = dateKey(todayPacific.getFullYear(), todayPacific.getMonth(), todayPacific.getDate());
+
+  const firstWeekday = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  const grid = document.getElementById('streak-cal-grid');
+  grid.innerHTML = '';
+
+  for (let i = 0; i < firstWeekday; i++) {
+    const empty = document.createElement('div');
+    empty.className = 'streak-cal-day empty';
+    grid.appendChild(empty);
+  }
+
+  for (let d = 1; d <= daysInMonth; d++) {
+    const key = dateKey(year, month, d);
+    const cell = document.createElement('div');
+    cell.className = 'streak-cal-day';
+    if (visitLogCache && visitLogCache[key]) cell.classList.add('visited');
+    if (key === todayKey) cell.classList.add('today');
+    cell.textContent = d;
+    grid.appendChild(cell);
+  }
+}
+
+function closeStreakCalendar() {
+  document.getElementById('streak-modal').style.display = 'none';
+}
+
+document.getElementById('header-streak').addEventListener('click', openStreakCalendar);
+document.getElementById('streak-cal-prev').addEventListener('click', () => {
+  calendarViewDate.setMonth(calendarViewDate.getMonth() - 1);
+  renderStreakCalendar();
+});
+document.getElementById('streak-cal-next').addEventListener('click', () => {
+  calendarViewDate.setMonth(calendarViewDate.getMonth() + 1);
+  renderStreakCalendar();
+});
+document.getElementById('streak-modal-close').addEventListener('click', closeStreakCalendar);
+document.getElementById('streak-modal').addEventListener('click', e => {
+  if (e.target === document.getElementById('streak-modal')) closeStreakCalendar();
+});
 
 async function startSession(username) {
   currentUser = username.toLowerCase().replace(/[^a-z0-9_-]/g, '');
